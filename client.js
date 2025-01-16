@@ -6,7 +6,7 @@ const name = document.getElementById("name");
 
 // WebSocket signaling server URL
 const client_name = `client_${Math.random().toString(36).substring(2, 10)}`;
-const signalingServerUrl = "ws://4.233.219.37:8000/ws/" + client_name;
+const signalingServerUrl = "ws://altunel.online/ws/" + client_name;
 name.innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
