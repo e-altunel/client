@@ -7,11 +7,8 @@ const signalingServerUrl = "ws://altunel.online/ws/" + client_name;
 document.getElementById("name").innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
-const peerConnection = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-});
-
-let dataChannel = peerConnection.createDataChannel("chat");
+const peers = {}; // Store peer connections by peer ID
+const dataChannels = {}; // Store data channels by peer ID
 
 function appendToChatLog(message, sender = "Peer") {
   chatLog.value += `${sender}: ${message}\n`;
@@ -27,61 +24,100 @@ dataChannel.onclose = () => {
 };
 
 dataChannel.onmessage = (event) => {
-  appendToChatLog(event.data, "Peer");
-};
-
-sendButton.onclick = () => {
-  const message = messageInput.value.trim();
-  if (message) {
-    if (dataChannel.readyState === "open") {
-      dataChannel.send(message); // Send message to peer
-      appendToChatLog(message, "You"); // Show your message in the chat log
-      messageInput.value = ""; // Clear input field
-    } else {
-      console.error("DataChannel is not open.");
-      appendToChatLog("Failed to send. DataChannel is not open.", "System");
-    }
-  }
+  appendToChatLog(event.data?.message, event.data?.sender);
 };
 
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
 
-  if (message.type === "offer") {
+  if (message.type === "new-peer") {
+    const peerId = message.peer;
+    if (!peers[peerId]) {
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      const dataChannel = peerConnection.createDataChannel("chat");
+
+      dataChannel.onopen = () => console.log(`DataChannel open with ${peerId}`);
+      dataChannel.onmessage = (e) =>
+        appendToChatLog(e.data, `Peer (${peerId})`);
+
+      peers[peerId] = peerConnection;
+      dataChannels[peerId] = dataChannel;
+
+      // Handle signaling
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          signalingServer.send(
+            JSON.stringify({
+              type: "candidate",
+              candidate: event.candidate,
+              peer: peerId,
+            })
+          );
+        }
+      };
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      signalingServer.send(
+        JSON.stringify({ type: "offer", offer, peer: peerId })
+      );
+    }
+  } else if (message.type === "offer") {
+    const peerId = message.peer;
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    peerConnection.ondatachannel = (event) => {
+      const remoteDataChannel = event.channel;
+      remoteDataChannel.onmessage = (e) =>
+        appendToChatLog(e.data, `Peer (${peerId})`);
+      remoteDataChannel.onopen = () =>
+        console.log(`DataChannel open with ${peerId}`);
+    };
+
+    peers[peerId] = peerConnection;
+
     await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message)
+      new RTCSessionDescription(message.offer)
     );
+
     const answer = await peerConnection.createAnswer();
-    console.log("Answer created:", answer);
     await peerConnection.setLocalDescription(answer);
-    signalingServer.send(JSON.stringify(peerConnection.localDescription));
+
+    signalingServer.send(
+      JSON.stringify({ type: "answer", answer, peer: peerId })
+    );
   } else if (message.type === "answer") {
+    const peerId = message.peer;
+    const peerConnection = peers[peerId];
     await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message)
+      new RTCSessionDescription(message.answer)
     );
   } else if (message.type === "candidate") {
+    const peerId = message.peer;
+    const peerConnection = peers[peerId];
     await peerConnection.addIceCandidate(
       new RTCIceCandidate(message.candidate)
     );
   }
 };
 
-peerConnection.onicecandidate = (event) => {
-  if (event.candidate) {
-    signalingServer.send(
-      JSON.stringify({ type: "candidate", candidate: event.candidate })
-    );
+sendButton.onclick = () => {
+  const message = messageInput.value.trim();
+  if (message) {
+    for (const peerId in dataChannels) {
+      const dataChannel = dataChannels[peerId];
+      if (dataChannel.readyState === "open") {
+        dataChannel.send(message);
+      }
+    }
+    appendToChatLog(message, "You");
+    messageInput.value = "";
   }
-};
-
-peerConnection.ondatachannel = (event) => {
-  const remoteDataChannel = event.channel;
-  remoteDataChannel.onmessage = (e) => {
-    appendToChatLog(e.data, "Peer");
-  };
-  remoteDataChannel.onopen = () => {
-    console.log("Remote DataChannel is open!");
-  };
 };
 
 async function createOffer() {
