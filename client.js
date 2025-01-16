@@ -26,7 +26,7 @@ function create_data_channel(peer_conn) {
     console.log("P2P DataChannel is closed!");
   };
 
-  dataChannels[client_id].onmessage = (event) => {
+  dataChannel.onmessage = (event) => {
     appendToChatLog(event.data, "Peer");
   };
 }
@@ -60,30 +60,37 @@ signalingServer.onmessage = async (event) => {
     );
     dataChannels[message.client_id] = create_data_channel(peerConnection);
   } else if (message.type === "offer") {
-    let peerConnection;
-    const client_id = message.client_id;
-    if (client_id in peers) {
-      peerConnection = peers[client_id];
-    } else {
-      peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-
-      dataChannels[client_id] = create_data_channel(peerConnection);
-      peerConnection.ondatachannel = (event) => {
-        const remoteDataChannel = event.channel;
-        remoteDataChannel.onmessage = (e) => {
-          appendToChatLog(e.data, "Peer");
-        };
-        remoteDataChannel.onopen = () => {
-          console.log("Remote DataChannel is open!");
-        };
-      };
-      peers[client_id] = peerConnection;
+    if (message.client_id in peers) {
+      return;
     }
+    const client_id = message.client_id;
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    signalingServer.send(
+      JSON.stringify({
+        type: "offer",
+        offer,
+        client_id: 0,
+      })
+    );
+
+    dataChannels[client_id] = create_data_channel(peerConnection);
     await peerConnection.setRemoteDescription(
       new RTCSessionDescription(message.offer)
     );
+    peerConnection.ondatachannel = (event) => {
+      const remoteDataChannel = event.channel;
+      remoteDataChannel.onmessage = (e) => {
+        appendToChatLog(e.data, "Peer");
+      };
+      remoteDataChannel.onopen = () => {
+        console.log("Remote DataChannel is open!");
+      };
+    };
+    peers[client_id] = peerConnection;
 
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
