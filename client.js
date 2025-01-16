@@ -25,11 +25,14 @@ signalingServer.onmessage = async (event) => {
     peers[message.client_id] = peerConnection;
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    signalingServer.send({
-      type: "offer",
-      offer,
-      client_id: 0,
-    });
+    signalingServer.send(
+      JSON.stringify({
+        type: "offer",
+        offer,
+        client_id: 0,
+      })
+    );
+    dataChannels[message.client_id] = peerConnection.createDataChannel("chat");
   } else if (message.type === "offer") {
     let peerConnection;
     const client_id = message.client_id;
@@ -43,33 +46,30 @@ signalingServer.onmessage = async (event) => {
       peerConnection.ondatachannel = (event) => {
         const remoteDataChannel = event.channel;
         remoteDataChannel.onmessage = (e) =>
-          appendToChatLog(e.data, `Peer (${peerId})`);
+          appendToChatLog(e.data, `Peer (${client_id})`);
         remoteDataChannel.onopen = () =>
-          console.log(`DataChannel open with ${peerId}`);
+          console.log(`DataChannel open with ${client_id}`);
       };
 
-      peers[peerId] = peerConnection;
+      peers[client_id] = peerConnection;
     }
-
     await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message.offer.offer)
+      new RTCSessionDescription(message.offer)
     );
 
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
 
-    signalingServer.send(
-      JSON.stringify({ type: "answer", answer, peer: peerId })
-    );
+    signalingServer.send(JSON.stringify({ type: "answer", answer, client_id }));
   } else if (message.type === "answer") {
-    const peerId = message.peer;
-    const peerConnection = peers[peerId];
+    const client_id = message.client_id;
+    const peerConnection = peers[client_id];
     await peerConnection.setRemoteDescription(
       new RTCSessionDescription(message.answer)
     );
   } else if (message.type === "candidate") {
-    const peerId = message.peer;
-    const peerConnection = peers[peerId];
+    const client_id = message.client_id;
+    const peerConnection = peers[client_id];
     await peerConnection.addIceCandidate(
       new RTCIceCandidate(message.candidate)
     );
