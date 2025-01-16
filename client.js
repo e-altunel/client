@@ -15,18 +15,6 @@ function appendToChatLog(message, sender = "Peer") {
   chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll to the latest message
 }
 
-dataChannel.onopen = () => {
-  console.log("P2P DataChannel is open!");
-};
-
-dataChannel.onclose = () => {
-  console.log("P2P DataChannel is closed!");
-};
-
-dataChannel.onmessage = (event) => {
-  appendToChatLog(event.data?.message, event.data?.sender);
-};
-
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
 
