@@ -1,47 +1,35 @@
-// Get HTML elements
 const chatLog = document.getElementById("chatLog");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
-const name = document.getElementById("name");
 
-// WebSocket signaling server URL
 const client_name = `client_${Math.random().toString(36).substring(2, 10)}`;
 const signalingServerUrl = "ws://altunel.online/ws/" + client_name;
-name.innerHTML = client_name;
+document.getElementById("name").innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
-// Create WebRTC PeerConnection
-// const peerConnection = new RTCPeerConnection();
 const peerConnection = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 });
 
-
-// DataChannel for P2P chat
 let dataChannel = peerConnection.createDataChannel("chat");
 
-// Function to append messages to the chat log
 function appendToChatLog(message, sender = "Peer") {
   chatLog.value += `${sender}: ${message}\n`;
   chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll to the latest message
 }
 
-// Event: DataChannel opened
 dataChannel.onopen = () => {
   console.log("P2P DataChannel is open!");
 };
 
-// Event: DataChannel closed
 dataChannel.onclose = () => {
   console.log("P2P DataChannel is closed!");
 };
 
-// Event: Handle incoming messages
 dataChannel.onmessage = (event) => {
   appendToChatLog(event.data, "Peer");
 };
 
-// Event: Handle Send Button click
 sendButton.onclick = () => {
   const message = messageInput.value.trim();
   if (message) {
@@ -56,28 +44,6 @@ sendButton.onclick = () => {
   }
 };
 
-// Handle WebSocket signaling
-// signalingServer.onmessage = async (event) => {
-//   const message = JSON.parse(event.data);
-
-//   if (message.type === "offer") {
-//     await peerConnection.setRemoteDescription(
-//       new RTCSessionDescription(message)
-//     );
-//     const answer = await peerConnection.createAnswer();
-//     await peerConnection.setLocalDescription(answer);
-//     signalingServer.send(JSON.stringify(peerConnection.localDescription));
-//   } else if (message.type === "answer") {
-//     await peerConnection.setRemoteDescription(
-//       new RTCSessionDescription(message)
-//     );
-//   } else if (message.type === "candidate") {
-//     await peerConnection.addIceCandidate(
-//       new RTCIceCandidate(message.candidate)
-//     );
-//   }
-// };
-
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
 
@@ -91,7 +57,10 @@ signalingServer.onmessage = async (event) => {
       await peerConnection.setLocalDescription(answer);
       signalingServer.send(JSON.stringify(peerConnection.localDescription));
     } else {
-      console.error("Cannot set remote offer in the current state:", peerConnection.signalingState);
+      console.error(
+        "Cannot set remote offer in the current state:",
+        peerConnection.signalingState
+      );
     }
   } else if (message.type === "answer") {
     if (peerConnection.signalingState === "have-local-offer") {
@@ -99,7 +68,10 @@ signalingServer.onmessage = async (event) => {
         new RTCSessionDescription(message)
       );
     } else {
-      console.error("Cannot set remote answer in the current state:", peerConnection.signalingState);
+      console.error(
+        "Cannot set remote answer in the current state:",
+        peerConnection.signalingState
+      );
     }
   } else if (message.type === "candidate") {
     await peerConnection.addIceCandidate(
@@ -108,7 +80,6 @@ signalingServer.onmessage = async (event) => {
   }
 };
 
-// Event: ICE Candidate Generation
 peerConnection.onicecandidate = (event) => {
   if (event.candidate) {
     signalingServer.send(
@@ -117,7 +88,6 @@ peerConnection.onicecandidate = (event) => {
   }
 };
 
-// Event: Remote DataChannel created
 peerConnection.ondatachannel = (event) => {
   const remoteDataChannel = event.channel;
   remoteDataChannel.onmessage = (e) => {
@@ -128,20 +98,17 @@ peerConnection.ondatachannel = (event) => {
   };
 };
 
-// Function to create an SDP offer
 async function createOffer() {
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
   signalingServer.send(JSON.stringify(offer));
 }
 
-// Start signaling process when connected to signaling server
 signalingServer.onopen = () => {
   console.log("Connected to signaling server!");
   createOffer();
 };
 
-// Handle signaling server errors or disconnection
 signalingServer.onerror = (error) => {
   console.error("Signaling server error:", error);
 };
