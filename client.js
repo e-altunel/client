@@ -7,7 +7,7 @@ const signalingServerUrl = "ws://altunel.online/ws/room/" + client_name;
 document.getElementById("name").innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
-const peers = [];
+const peers = {};
 const dataChannels = {}; // Store data channels by peer ID
 
 function appendToChatLog(message, sender = "Peer") {
@@ -22,28 +22,37 @@ signalingServer.onmessage = async (event) => {
     const peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    peers.push(peerConnection);
+    peers[message.client_id] = peerConnection;
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    signalingServer.send(JSON.stringify(offer));
-  } else if (message.type === "offer") {
-    const peerId = message.peer;
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    signalingServer.send({
+      type: "offer",
+      offer,
+      client_id: 0,
     });
+  } else if (message.type === "offer") {
+    let peerConnection;
+    const client_id = message.client_id;
+    if (client_id in peers) {
+      peerConnection = peers[client_id];
+    } else {
+      peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
 
-    peerConnection.ondatachannel = (event) => {
-      const remoteDataChannel = event.channel;
-      remoteDataChannel.onmessage = (e) =>
-        appendToChatLog(e.data, `Peer (${peerId})`);
-      remoteDataChannel.onopen = () =>
-        console.log(`DataChannel open with ${peerId}`);
-    };
+      peerConnection.ondatachannel = (event) => {
+        const remoteDataChannel = event.channel;
+        remoteDataChannel.onmessage = (e) =>
+          appendToChatLog(e.data, `Peer (${peerId})`);
+        remoteDataChannel.onopen = () =>
+          console.log(`DataChannel open with ${peerId}`);
+      };
 
-    peers[peerId] = peerConnection;
+      peers[peerId] = peerConnection;
+    }
 
     await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message.offer)
+      new RTCSessionDescription(message.offer.offer)
     );
 
     const answer = await peerConnection.createAnswer();
