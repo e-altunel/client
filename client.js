@@ -17,6 +17,7 @@ function appendToChatLog(message, sender = "Peer") {
 
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
+  console.log(message);
 
   if (message.type === "create_offer") {
     const peerConnection = new RTCPeerConnection({
@@ -43,12 +44,9 @@ signalingServer.onmessage = async (event) => {
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
 
-      peerConnection.ondatachannel = (event) => {
-        const remoteDataChannel = event.channel;
-        remoteDataChannel.onmessage = (e) =>
-          appendToChatLog(e.data, `Peer (${client_id})`);
-        remoteDataChannel.onopen = () =>
-          console.log(`DataChannel open with ${client_id}`);
+      dataChannels[client_id] = peerConnection.createDataChannel("chat");
+      dataChannels[client_id].onmessage = (event) => {
+        appendToChatLog(event.data, "Peer");
       };
 
       peers[client_id] = peerConnection;
@@ -60,7 +58,9 @@ signalingServer.onmessage = async (event) => {
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
 
-    signalingServer.send(JSON.stringify({ type: "answer", answer, client_id }));
+    signalingServer.send(
+      JSON.stringify({ type: "answer", answer, client_id: client_name })
+    );
   } else if (message.type === "answer") {
     const client_id = message.client_id;
     const peerConnection = peers[client_id];
@@ -74,6 +74,8 @@ signalingServer.onmessage = async (event) => {
       new RTCIceCandidate(message.candidate)
     );
   }
+
+  console.log(peers, dataChannels);
 };
 
 sendButton.onclick = () => {
@@ -83,6 +85,8 @@ sendButton.onclick = () => {
       const dataChannel = dataChannels[peerId];
       if (dataChannel.readyState === "open") {
         dataChannel.send(message);
+      } else {
+        console.error(`Client ${peerId} cant reach`);
       }
     }
     appendToChatLog(message, "You");
