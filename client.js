@@ -27,6 +27,7 @@ function createPeerConnection(client_id) {
           type: "candidate",
           candidate: event.candidate,
           client_id: client_name,
+          target_id: client_id,
         })
       );
     }
@@ -92,7 +93,12 @@ signalingServer.onmessage = async (event) => {
       await peerConnection.setLocalDescription(offer);
 
       signalingServer.send(
-        JSON.stringify({ type: "offer", offer, client_id: client_name })
+        JSON.stringify({
+          type: "offer",
+          offer,
+          client_id: client_name,
+          target_id: message.client_id,
+        })
       );
     } else if (message.type === "offer") {
       const peerConnection = createPeerConnection(message.client_id);
@@ -104,7 +110,12 @@ signalingServer.onmessage = async (event) => {
       await peerConnection.setLocalDescription(answer);
 
       signalingServer.send(
-        JSON.stringify({ type: "answer", answer, client_id: client_name })
+        JSON.stringify({
+          type: "answer",
+          answer,
+          client_id: client_name,
+          target_id: message.client_id,
+        })
       );
     } else if (message.type === "answer") {
       const peerConnection = peers[message.client_id];
