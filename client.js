@@ -11,7 +11,11 @@ name.innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
 // Create WebRTC PeerConnection
-const peerConnection = new RTCPeerConnection();
+// const peerConnection = new RTCPeerConnection();
+const peerConnection = new RTCPeerConnection({
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+});
+
 
 // DataChannel for P2P chat
 let dataChannel = peerConnection.createDataChannel("chat");
@@ -53,20 +57,50 @@ sendButton.onclick = () => {
 };
 
 // Handle WebSocket signaling
+// signalingServer.onmessage = async (event) => {
+//   const message = JSON.parse(event.data);
+
+//   if (message.type === "offer") {
+//     await peerConnection.setRemoteDescription(
+//       new RTCSessionDescription(message)
+//     );
+//     const answer = await peerConnection.createAnswer();
+//     await peerConnection.setLocalDescription(answer);
+//     signalingServer.send(JSON.stringify(peerConnection.localDescription));
+//   } else if (message.type === "answer") {
+//     await peerConnection.setRemoteDescription(
+//       new RTCSessionDescription(message)
+//     );
+//   } else if (message.type === "candidate") {
+//     await peerConnection.addIceCandidate(
+//       new RTCIceCandidate(message.candidate)
+//     );
+//   }
+// };
+
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
 
   if (message.type === "offer") {
-    await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message)
-    );
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    signalingServer.send(JSON.stringify(peerConnection.localDescription));
+    if (peerConnection.signalingState === "stable") {
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(message)
+      );
+      const answer = await peerConnection.createAnswer();
+      console.log("Answer created:", answer);
+      await peerConnection.setLocalDescription(answer);
+      signalingServer.send(JSON.stringify(peerConnection.localDescription));
+    } else {
+      console.error("Cannot set remote offer in the current state:", peerConnection.signalingState);
+    }
   } else if (message.type === "answer") {
-    await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message)
-    );
+    if (peerConnection.signalingState === "have-local-offer") {
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(message)
+      );
+    } else {
+      console.error("Cannot set remote answer in the current state:", peerConnection.signalingState);
+    }
   } else if (message.type === "candidate") {
     await peerConnection.addIceCandidate(
       new RTCIceCandidate(message.candidate)
