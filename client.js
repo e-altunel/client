@@ -29,6 +29,7 @@ function create_data_channel(peer_conn) {
   dataChannel.onmessage = (event) => {
     appendToChatLog(event.data, "Peer");
   };
+  return dataChannel;
 }
 
 signalingServer.onmessage = async (event) => {
@@ -39,14 +40,12 @@ signalingServer.onmessage = async (event) => {
     const peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    peerConnection.ondatachannel = (event) => {
-      const remoteDataChannel = event.channel;
-      remoteDataChannel.onmessage = (e) => {
-        appendToChatLog(e.data, "Peer");
-      };
-      remoteDataChannel.onopen = () => {
-        console.log("Remote DataChannel is open!");
-      };
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        signalingServer.send(
+          JSON.stringify({ type: "candidate", candidate: event.candidate })
+        );
+      }
     };
     peers[message.client_id] = peerConnection;
     const offer = await peerConnection.createOffer();
@@ -64,6 +63,13 @@ signalingServer.onmessage = async (event) => {
     const peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        signalingServer.send(
+          JSON.stringify({ type: "candidate", candidate: event.candidate })
+        );
+      }
+    };
     peers[client_id] = peerConnection;
     dataChannels[client_id] = create_data_channel(peerConnection);
     await peerConnection.setRemoteDescription(
