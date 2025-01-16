@@ -48,31 +48,17 @@ signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
 
   if (message.type === "offer") {
-    if (peerConnection.signalingState === "stable") {
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(message)
-      );
-      const answer = await peerConnection.createAnswer();
-      console.log("Answer created:", answer);
-      await peerConnection.setLocalDescription(answer);
-      signalingServer.send(JSON.stringify(peerConnection.localDescription));
-    } else {
-      console.error(
-        "Cannot set remote offer in the current state:",
-        peerConnection.signalingState
-      );
-    }
+    await peerConnection.setRemoteDescription(
+      new RTCSessionDescription(message)
+    );
+    const answer = await peerConnection.createAnswer();
+    console.log("Answer created:", answer);
+    await peerConnection.setLocalDescription(answer);
+    signalingServer.send(JSON.stringify(peerConnection.localDescription));
   } else if (message.type === "answer") {
-    if (peerConnection.signalingState === "have-local-offer") {
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(message)
-      );
-    } else {
-      console.error(
-        "Cannot set remote answer in the current state:",
-        peerConnection.signalingState
-      );
-    }
+    await peerConnection.setRemoteDescription(
+      new RTCSessionDescription(message)
+    );
   } else if (message.type === "candidate") {
     await peerConnection.addIceCandidate(
       new RTCIceCandidate(message.candidate)
