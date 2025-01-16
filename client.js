@@ -8,108 +8,138 @@ document.getElementById("name").innerHTML = client_name;
 const signalingServer = new WebSocket(signalingServerUrl);
 
 const peers = {};
-const dataChannels = {}; // Store data channels by peer ID
+const dataChannels = {};
 
 function appendToChatLog(message, sender = "Peer") {
   chatLog.value += `${sender}: ${message}\n`;
   chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll to the latest message
 }
 
-function create_data_channel(peer_conn) {
-  const dataChannel = peer_conn.createDataChannel("chat");
+function createPeerConnection(client_id) {
+  const peerConnection = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      signalingServer.send(
+        JSON.stringify({
+          type: "candidate",
+          candidate: event.candidate,
+          client_id: client_name,
+        })
+      );
+    }
+  };
+
+  peerConnection.ondatachannel = (event) => {
+    const dataChannel = event.channel;
+    setupDataChannel(client_id, dataChannel);
+  };
+
+  peerConnection.onconnectionstatechange = () => {
+    if (
+      peerConnection.connectionState === "disconnected" ||
+      peerConnection.connectionState === "failed"
+    ) {
+      console.log(`Peer ${client_id} disconnected. Cleaning up.`);
+      cleanupPeer(client_id);
+    }
+  };
+
+  peers[client_id] = peerConnection;
+  return peerConnection;
+}
+
+function setupDataChannel(client_id, dataChannel) {
+  dataChannels[client_id] = dataChannel;
 
   dataChannel.onopen = () => {
-    console.log("P2P DataChannel is open!");
+    console.log(`DataChannel with ${client_id} is open!`);
   };
 
   dataChannel.onclose = () => {
-    console.log("P2P DataChannel is closed!");
+    console.log(`DataChannel with ${client_id} is closed.`);
+    delete dataChannels[client_id];
   };
 
   dataChannel.onmessage = (event) => {
-    appendToChatLog(event.data, "Peer");
+    appendToChatLog(event.data, client_id);
   };
-  return dataChannel;
+}
+
+function cleanupPeer(client_id) {
+  if (peers[client_id]) {
+    peers[client_id].close();
+    delete peers[client_id];
+  }
+  if (dataChannels[client_id]) {
+    delete dataChannels[client_id];
+  }
 }
 
 signalingServer.onmessage = async (event) => {
-  const message = JSON.parse(event.data);
-  console.log(message);
+  try {
+    const message = JSON.parse(event.data);
+    console.log("Received signaling message:", message);
 
-  if (message.type === "create_offer") {
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        signalingServer.send(
-          JSON.stringify({ type: "candidate", candidate: event.candidate })
+    if (message.type === "create_offer") {
+      const peerConnection = createPeerConnection(message.client_id);
+      const dataChannel = peerConnection.createDataChannel("chat");
+      setupDataChannel(message.client_id, dataChannel);
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      signalingServer.send(
+        JSON.stringify({ type: "offer", offer, client_id: client_name })
+      );
+    } else if (message.type === "offer") {
+      const peerConnection = createPeerConnection(message.client_id);
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(message.offer)
+      );
+
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      signalingServer.send(
+        JSON.stringify({ type: "answer", answer, client_id: client_name })
+      );
+    } else if (message.type === "answer") {
+      const peerConnection = peers[message.client_id];
+      if (peerConnection) {
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(message.answer)
         );
+      } else {
+        console.error("No peer connection found for answer");
       }
-    };
-    peers[message.client_id] = peerConnection;
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    signalingServer.send(
-      JSON.stringify({
-        type: "offer",
-        offer,
-        client_id: client_name,
-      })
-    );
-    dataChannels[message.client_id] = create_data_channel(peerConnection);
-  } else if (message.type === "offer") {
-    const client_id = message.client_id;
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        signalingServer.send(
-          JSON.stringify({ type: "candidate", candidate: event.candidate })
+    } else if (message.type === "candidate") {
+      const peerConnection = peers[message.client_id];
+      if (peerConnection) {
+        await peerConnection.addIceCandidate(
+          new RTCIceCandidate(message.candidate)
         );
+      } else {
+        console.error("No peer connection found for candidate");
       }
-    };
-    peers[client_id] = peerConnection;
-    dataChannels[client_id] = create_data_channel(peerConnection);
-    await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message.offer)
-    );
-
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-
-    signalingServer.send(
-      JSON.stringify({ type: "answer", answer, client_id: client_name })
-    );
-  } else if (message.type === "answer") {
-    const client_id = message.client_id;
-    const peerConnection = peers[client_id];
-    await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(message.answer)
-    );
-  } else if (message.type === "candidate") {
-    const client_id = message.client_id;
-    const peerConnection = peers[client_id];
-    await peerConnection.addIceCandidate(
-      new RTCIceCandidate(message.candidate)
-    );
+    }
+  } catch (error) {
+    console.error("Error handling signaling message:", error);
   }
-
-  console.log(peers, dataChannels);
 };
 
 sendButton.onclick = () => {
   const message = messageInput.value.trim();
   if (message) {
-    for (const peerId in dataChannels) {
-      const dataChannel = dataChannels[peerId];
+    Object.entries(dataChannels).forEach(([peerId, dataChannel]) => {
       if (dataChannel.readyState === "open") {
         dataChannel.send(message);
       } else {
-        console.error(`Client ${peerId} cant reach`);
+        console.error(`DataChannel to ${peerId} is not open`);
       }
-    }
+    });
     appendToChatLog(message, "You");
     messageInput.value = "";
   }
