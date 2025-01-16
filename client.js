@@ -15,6 +15,22 @@ function appendToChatLog(message, sender = "Peer") {
   chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll to the latest message
 }
 
+function create_data_channel(peer_conn) {
+  const dataChannel = peer_conn.createDataChannel("chat");
+
+  dataChannel.onopen = () => {
+    console.log("P2P DataChannel is open!");
+  };
+
+  dataChannel.onclose = () => {
+    console.log("P2P DataChannel is closed!");
+  };
+
+  dataChannels[client_id].onmessage = (event) => {
+    appendToChatLog(event.data, "Peer");
+  };
+}
+
 signalingServer.onmessage = async (event) => {
   const message = JSON.parse(event.data);
   console.log(message);
@@ -23,6 +39,15 @@ signalingServer.onmessage = async (event) => {
     const peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
+    peerConnection.ondatachannel = (event) => {
+      const remoteDataChannel = event.channel;
+      remoteDataChannel.onmessage = (e) => {
+        appendToChatLog(e.data, "Peer");
+      };
+      remoteDataChannel.onopen = () => {
+        console.log("Remote DataChannel is open!");
+      };
+    };
     peers[message.client_id] = peerConnection;
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
@@ -33,7 +58,7 @@ signalingServer.onmessage = async (event) => {
         client_id: 0,
       })
     );
-    dataChannels[message.client_id] = peerConnection.createDataChannel("chat");
+    dataChannels[message.client_id] = create_data_channel(peerConnection);
   } else if (message.type === "offer") {
     let peerConnection;
     const client_id = message.client_id;
@@ -44,11 +69,16 @@ signalingServer.onmessage = async (event) => {
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
 
-      dataChannels[client_id] = peerConnection.createDataChannel("chat");
-      dataChannels[client_id].onmessage = (event) => {
-        appendToChatLog(event.data, "Peer");
+      dataChannels[client_id] = create_data_channel(peerConnection);
+      peerConnection.ondatachannel = (event) => {
+        const remoteDataChannel = event.channel;
+        remoteDataChannel.onmessage = (e) => {
+          appendToChatLog(e.data, "Peer");
+        };
+        remoteDataChannel.onopen = () => {
+          console.log("Remote DataChannel is open!");
+        };
       };
-
       peers[client_id] = peerConnection;
     }
     await peerConnection.setRemoteDescription(
